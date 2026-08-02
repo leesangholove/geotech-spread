@@ -518,7 +518,7 @@ function CommentBoard({ sheetId, selectedTitle, isOwner }: { sheetId: string | n
     setSaving(true);
 
     const newComment = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       name: name.trim(),
       body: body.trim(),
       createdAt: new Date().toISOString(),
