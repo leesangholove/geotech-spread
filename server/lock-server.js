@@ -1,10 +1,12 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { createVisitorTracker } from './visitorTracker.js';
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
 const LOCK_TTL_MS = 10 * 60 * 1000;
 const locks = new Map();
 const clientLocks = new Map();
+const visitorTracker = createVisitorTracker({ ttlMs: 30_000 });
 
 function now() {
   return Date.now();
@@ -58,6 +60,13 @@ function buildLockResponse(lock) {
   };
 }
 
+function buildVisitorResponse(snapshot) {
+  return {
+    totalVisitors: snapshot.totalVisitors,
+    onlineVisitors: snapshot.onlineVisitors,
+  };
+}
+
 const server = http.createServer(async (req, res) => {
   setCors(res);
 
@@ -79,6 +88,44 @@ const server = http.createServer(async (req, res) => {
 
     const lock = locks.get(sheetId) || null;
     return sendJson(res, 200, buildLockResponse(lock));
+  }
+
+  if (pathname === '/visitors' && req.method === 'POST') {
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      body = {};
+    }
+
+    const clientId = body.clientId || randomUUID();
+    const snapshot = visitorTracker.trackVisitor(clientId, now());
+    return sendJson(res, 200, {
+      clientId,
+      ...buildVisitorResponse(snapshot),
+    });
+  }
+
+  if (pathname === '/visitors/status' && req.method === 'GET') {
+    const snapshot = visitorTracker.getSnapshot(now());
+    return sendJson(res, 200, buildVisitorResponse(snapshot));
+  }
+
+  if (pathname === '/visitors/leave' && req.method === 'POST') {
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      body = {};
+    }
+
+    const clientId = body.clientId;
+    if (!clientId) {
+      return sendJson(res, 400, { error: 'clientId is required' });
+    }
+
+    const snapshot = visitorTracker.removeVisitor(clientId, now());
+    return sendJson(res, 200, buildVisitorResponse(snapshot));
   }
 
   if ((pathname === '/lock' || pathname === '/unlock') && req.method === 'POST') {
